@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CV Analyzer</title>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>CV Analyzer</h1>
+      <p>Upload a PDF CV → Extract (OCR fallback) → Analyze & score (strict JSON).</p>
+
+      <div class="grid">
+        <div>
+          <label class="label">User ID</label>
+          <input id="userId" placeholder="e.g. u123" value="u123" />
+        </div>
+
+        <div>
+          <label class="label">CV PDF</label>
+          <input id="pdfFile" type="file" accept="application/pdf" />
+        </div>
+      </div>
+
+      <div class="row">
+        <button id="btnUpload">1) Upload & Extract</button>
+        <div style="flex:1"></div>
+        <div class="badge">
+          <div class="k">cv_id</div>
+          <div class="v" id="cvId">—</div>
+        </div>
+      </div>
+
+      <div id="uploadSection" class="section" style="display:none;">
+        <h3>Upload Result</h3>
+        <div class="row" style="margin-top:0;">
+          <div class="pill" id="sourcePill">text_source: —</div>
+          <div class="pill">chars: <span id="extractedChars" style="margin-left:6px;">—</span></div>
+        </div>
+        <div class="preview" id="extractedPreview"></div>
+      </div>
+
+      <hr />
+
+      <div class="section">
+        <h3>Requirements Builder</h3>
+
+        <div class="grid">
+          <div>
+            <label class="label">Target Role</label>
+            <input id="roleInput" placeholder="e.g. Research Assistant (Pharmaceutics)" />
+          </div>
+
+          <div>
+            <label class="label">Quick presets</label>
+            <div class="row" style="margin-top:0;">
+              <button class="btn-secondary" id="btnPresetGeneral">General</button>
+              <button class="btn-secondary" id="btnPresetResearch">Research (Pharmaceutics)</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid" style="margin-top:12px;">
+          <div class="chip-area">
+            <div class="row" style="margin-top:0;">
+              <div style="font-weight:600;">Must-have</div>
+              <div class="small">(press Enter to add)</div>
+            </div>
+            <div class="chip-input-row">
+              <input id="mustInput" placeholder="e.g. HPLC" />
+              <button class="btn-secondary" id="mustAdd">Add</button>
+            </div>
+            <div class="chips" id="mustChips"></div>
+          </div>
+
+          <div class="chip-area">
+            <div class="row" style="margin-top:0;">
+              <div style="font-weight:600;">Nice-to-have</div>
+              <div class="small">(press Enter to add)</div>
+            </div>
+            <div class="chip-input-row">
+              <input id="niceInput" placeholder="e.g. Nanoparticles" />
+              <button class="btn-secondary" id="niceAdd">Add</button>
+            </div>
+            <div class="chips" id="niceChips"></div>
+          </div>
+        </div>
+
+        <div class="section weights">
+          <div class="row" style="margin-top:0; justify-content:space-between;">
+            <div>
+              <div style="font-weight:600;">Weights</div>
+              <div class="small">Move sliders (we auto-normalize to sum = 1.0)</div>
+            </div>
+            <div class="pill" id="sumPill">sum: 1.000</div>
+          </div>
+
+          <div class="weight-row">
+            <div class="weight-name">Relevance to role</div>
+            <input type="range" min="0" max="100" value="30" id="w_relevance"/>
+            <div class="weight-value" id="v_relevance">0.300</div>
+          </div>
+
+          <div class="weight-row">
+            <div class="weight-name">Skills match</div>
+            <input type="range" min="0" max="100" value="30" id="w_skills"/>
+            <div class="weight-value" id="v_skills">0.300</div>
+          </div>
+
+          <div class="weight-row">
+            <div class="weight-name">Experience strength</div>
+            <input type="range" min="0" max="100" value="20" id="w_experience"/>
+            <div class="weight-value" id="v_experience">0.200</div>
+          </div>
+
+          <div class="weight-row">
+            <div class="weight-name">Education fit</div>
+            <input type="range" min="0" max="100" value="10" id="w_education"/>
+            <div class="weight-value" id="v_education">0.100</div>
+          </div>
+
+          <div class="weight-row">
+            <div class="weight-name">Clarity & structure</div>
+            <input type="range" min="0" max="100" value="10" id="w_clarity"/>
+            <div class="weight-value" id="v_clarity">0.100</div>
+          </div>
+
+          <div class="row">
+            <button class="btn-secondary" id="btnResetWeights">Reset weights</button>
+            <button class="btn-secondary" id="btnCopyReq">Copy requirements JSON</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <button id="btnAnalyze">2) Analyze & Score</button>
+          <div class="small" id="builderStatus">—</div>
+        </div>
+      </div>
+
+      <div id="errorBox" class="error" style="display:none;"></div>
+
+      <div id="resultSection" class="section" style="display:none;">
+        <h3>Result</h3>
+        <div class="kv"><div class="k">overall_score</div><div class="v" id="overallScore">—</div></div>
+        <div class="kv"><div class="k">analysis_id</div><div class="v" id="analysisId" style="font-family:ui-monospace,monospace">—</div></div>
+
+        <details style="margin-top:10px;">
+          <summary style="cursor:pointer;">View full JSON</summary>
+          <pre id="fullJson"></pre>
+        </details>
+      </div>
+
+    </div>
+  </div>
+
+<script>
+  const API_BASE = "http://127.0.0.1:8000";
+  const el = (id) => document.getElementById(id);
+
+  const userIdEl = el("userId");
+  const fileEl = el("pdfFile");
+  const btnUpload = el("btnUpload");
+  const cvIdEl = el("cvId");
+
+  const uploadSection = el("uploadSection");
+  const sourcePill = el("sourcePill");
+  const extractedCharsEl = el("extractedChars");
+  const extractedPreviewEl = el("extractedPreview");
+
+  const roleInput = el("roleInput");
+  const btnPresetGeneral = el("btnPresetGeneral");
+  const btnPresetResearch = el("btnPresetResearch");
+
+  const mustInput = el("mustInput");
+  const mustAdd = el("mustAdd");
+  const mustChipsEl = el("mustChips");
+
+  const niceInput = el("niceInput");
+  const niceAdd = el("niceAdd");
+  const niceChipsEl = el("niceChips");
+
+  const w_relevance = el("w_relevance");
+  const w_skills = el("w_skills");
+  const w_experience = el("w_experience");
+  const w_education = el("w_education");
+  const w_clarity = el("w_clarity");
+
+  const v_relevance = el("v_relevance");
+  const v_skills = el("v_skills");
+  const v_experience = el("v_experience");
+  const v_education = el("v_education");
+  const v_clarity = el("v_clarity");
+
+  const sumPill = el("sumPill");
+  const btnResetWeights = el("btnResetWeights");
+  const btnCopyReq = el("btnCopyReq");
+  const btnAnalyze = el("btnAnalyze");
+  const builderStatus = el("builderStatus");
+
+  const errorBox = el("errorBox");
+  const resultSection = el("resultSection");
+  const overallScoreEl = el("overallScore");
+  const analysisIdEl = el("analysisId");
+  const fullJsonEl = el("fullJson");
+
+  let currentCvId = "";
+  let mustHave = [];
+  let niceToHave = [];
+
+  function setError(msg){
+    if(!msg){
+      errorBox.style.display = "none";
+      errorBox.textContent = "";
+      return;
+    }
+    errorBox.style.display = "block";
+    errorBox.textContent = "Error: " + msg;
+  }
+
+  function setBusy(isBusy){
+    btnUpload.disabled = isBusy;
+    btnAnalyze.disabled = isBusy;
+
+    btnUpload.textContent = isBusy ? "Working..." : "1) Upload & Extract";
+    btnAnalyze.textContent = isBusy ? "Working..." : "2) Analyze & Score";
+  }
+
+  function normalizeWeights(){
+    const raws = [
+      +w_relevance.value,
+      +w_skills.value,
+      +w_experience.value,
+      +w_education.value,
+      +w_clarity.value
+    ];
+
+    const sum = raws.reduce((a,b)=>a+b,0);
+
+    if(sum === 0){
+      w_relevance.value = 30;
+      w_skills.value = 30;
+      w_experience.value = 20;
+      w_education.value = 10;
+      w_clarity.value = 10;
+      return normalizeWeights();
+    }
+
+    const norm = raws.map(x => x / sum);
+
+    v_relevance.textContent = norm[0].toFixed(3);
+    v_skills.textContent = norm[1].toFixed(3);
+    v_experience.textContent = norm[2].toFixed(3);
+    v_education.textContent = norm[3].toFixed(3);
+    v_clarity.textContent = norm[4].toFixed(3);
+
+    const normSum = norm.reduce((a,b)=>a+b,0);
+    sumPill.textContent = "sum: " + normSum.toFixed(3);
+    sumPill.className = "pill ok";
+
+    return {
+      relevance_to_role: +norm[0].toFixed(3),
+      skills_match: +norm[1].toFixed(3),
+      experience_strength: +norm[2].toFixed(3),
+      education_fit: +norm[3].toFixed(3),
+      clarity_and_structure: +norm[4].toFixed(3),
+    };
+  }
+
+  function renderChips(list, container){
+    container.innerHTML = "";
+    list.forEach((item, idx) => {
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      chip.innerHTML = `
+        <span>${escapeHtml(item)}</span>
+        <button title="Remove">×</button>
+      `;
+      chip.querySelector("button").addEventListener("click", () => {
+        list.splice(idx, 1);
+        renderAllChips();
+        updateBuilderStatus();
+      });
+      container.appendChild(chip);
+    });
+  }
+
+  function escapeHtml(str){
+    return String(str)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function addChip(list, value){
+    const v = (value || "").trim();
+    if(!v) return false;
+
+    const exists = list.some(x => x.toLowerCase() === v.toLowerCase());
+    if(exists) return false;
+
+    list.push(v);
+    return true;
+  }
+
+  function renderAllChips(){
+    renderChips(mustHave, mustChipsEl);
+    renderChips(niceToHave, niceChipsEl);
+  }
+
+  function buildRequirements(){
+    const weights = normalizeWeights();
+    const role = (roleInput.value || "").trim() || "General";
+
+    return {
+      role,
+      must_have: mustHave.slice(),
+      nice_to_have: niceToHave.slice(),
+      weights
+    };
+  }
+
+  function updateBuilderStatus(){
+    const req = buildRequirements();
+    builderStatus.textContent =
+      `Role: "${req.role}" | Must-have: ${req.must_have.length} | Nice-to-have: ${req.nice_to_have.length}`;
+  }
+
+  function applyPreset(preset){
+    roleInput.value = preset.role;
+    mustHave = preset.must_have.slice();
+    niceToHave = preset.nice_to_have.slice();
+
+    const w = preset.weights;
+    w_relevance.value = Math.round((w.relevance_to_role || 0.25) * 100);
+    w_skills.value = Math.round((w.skills_match || 0.25) * 100);
+    w_experience.value = Math.round((w.experience_strength || 0.25) * 100);
+    w_education.value = Math.round((w.education_fit || 0.15) * 100);
+    w_clarity.value = Math.round((w.clarity_and_structure || 0.10) * 100);
+
+    renderAllChips();
+    normalizeWeights();
+    updateBuilderStatus();
+  }
+
+  const PRESET_GENERAL = {
+    role: "General",
+    must_have: [],
+    nice_to_have: [],
+    weights: {
+      relevance_to_role: 0.25,
+      skills_match: 0.25,
+      experience_strength: 0.25,
+      education_fit: 0.15,
+      clarity_and_structure: 0.10
+    }
+  };
+
+  const PRESET_RESEARCH = {
+    role: "Research Assistant (Pharmaceutics)",
+    must_have: ["Formulation", "Drug Delivery", "HPLC", "Cell culture"],
+    nice_to_have: ["Nanoparticles", "Inhalable delivery", "GraphPad Prism"],
+    weights: {
+      relevance_to_role: 0.30,
+      skills_match: 0.30,
+      experience_strength: 0.20,
+      education_fit: 0.10,
+      clarity_and_structure: 0.10
+    }
+  };
+
+  applyPreset(PRESET_RESEARCH);
+
+  [w_relevance, w_skills, w_experience, w_education, w_clarity].forEach(sl => {
+    sl.addEventListener("input", () => {
+      normalizeWeights();
+      updateBuilderStatus();
+    });
+  });
+
+  btnResetWeights.addEventListener("click", () => {
+    applyPreset({ ...buildRequirements(), weights: PRESET_RESEARCH.weights });
+  });
+
+  btnCopyReq.addEventListener("click", async () => {
+    const req = buildRequirements();
+    const txt = JSON.stringify(req, null, 2);
+    try {
+      await navigator.clipboard.writeText(txt);
+      builderStatus.textContent = "Copied requirements JSON ✅";
+      setTimeout(updateBuilderStatus, 1200);
+    } catch {
+      // fallback
+      prompt("Copy requirements JSON:", txt);
+    }
+  });
+
+  // Events: chips
+  mustAdd.addEventListener("click", () => {
+    if(addChip(mustHave, mustInput.value)){
+      mustInput.value = "";
+      renderAllChips();
+      updateBuilderStatus();
+    }
+  });
+  niceAdd.addEventListener("click", () => {
+    if(addChip(niceToHave, niceInput.value)){
+      niceInput.value = "";
+      renderAllChips();
+      updateBuilderStatus();
+    }
+  });
+
+  mustInput.addEventListener("keydown", (e) => {
+    if(e.key === "Enter"){
+      e.preventDefault();
+      mustAdd.click();
+    }
+  });
+  niceInput.addEventListener("keydown", (e) => {
+    if(e.key === "Enter"){
+      e.preventDefault();
+      niceAdd.click();
+    }
+  });
+
+  btnPresetGeneral.addEventListener("click", () => applyPreset(PRESET_GENERAL));
+  btnPresetResearch.addEventListener("click", () => applyPreset(PRESET_RESEARCH));
+
+  btnUpload.addEventListener("click", async () => {
+    setError("");
+    resultSection.style.display = "none";
+
+    const user_id = userIdEl.value.trim();
+    const file = fileEl.files?.[0];
+
+    if(!user_id) return setError("Please enter user_id.");
+    if(!file) return setError("Please choose a PDF file.");
+
+    const form = new FormData();
+    form.append("user_id", user_id);
+    form.append("file", file);
+
+    setBusy(true);
+    try {
+      const res = await fetch(API_BASE + "/cv/upload", {
+        method: "POST",
+        body: form
+      });
+
+      const data = await res.json();
+      if(!res.ok) throw new Error(data?.detail || "Upload failed");
+
+      currentCvId = data.id;
+      cvIdEl.textContent = currentCvId;
+
+      uploadSection.style.display = "block";
+      sourcePill.textContent = "text_source: " + (data.text_source || "—");
+      sourcePill.className = "pill " + (data.text_source === "ocr" ? "warn" : "ok");
+
+      extractedCharsEl.textContent = data.extracted_chars ?? "—";
+      extractedPreviewEl.textContent = data.extracted_preview || "";
+
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  btnAnalyze.addEventListener("click", async () => {
+    setError("");
+    if(!currentCvId) return setError("cv_id is missing. Upload a CV first.");
+
+    const requirements = buildRequirements();
+
+    setBusy(true);
+    try {
+      const res = await fetch(API_BASE + "/cv/analyze", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ cv_id: currentCvId, requirements })
+      });
+
+      const data = await res.json();
+      if(!res.ok) throw new Error(data?.detail || "Analyze failed");
+
+      resultSection.style.display = "block";
+      overallScoreEl.textContent = data.overall_score ?? "—";
+      analysisIdEl.textContent = data.analysis_id ?? "—";
+      fullJsonEl.textContent = JSON.stringify(data.analysis, null, 2);
+
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  updateBuilderStatus();
+</script>
+</body>
+</html>
