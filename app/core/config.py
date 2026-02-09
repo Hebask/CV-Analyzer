@@ -6,5 +6,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     MONGO_URI: str = "mongodb://localhost:27017"
     DB_NAME: str = "cv_analyzer"
+    DEFAULT_MODEL: str = "gpt-4o-mini"
+
+    POPPLER_BIN: str = ""
+    TESSERACT_CMD: str = ""
 
 settings = Settings()

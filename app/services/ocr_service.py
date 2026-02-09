@@ -1,15 +1,21 @@
-import os
 from typing import List
 import pytesseract
 from pdf2image import convert_from_bytes
+from app.core.config import settings
 
-TESSERACT_CMD = os.getenv("TESSERACT_CMD")
-POPPLER_BIN = os.getenv("POPPLER_BIN")
+# Use settings loaded from .env
+POPPLER_BIN = settings.POPPLER_BIN
+TESSERACT_CMD = settings.TESSERACT_CMD
 
 if TESSERACT_CMD:
     pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
 
 def ocr_pdf_bytes(file_bytes: bytes, dpi: int = 250) -> str:
+    if not POPPLER_BIN:
+        raise RuntimeError("POPPLER_BIN is not set in .env (Poppler Library\\bin).")
+    if not TESSERACT_CMD:
+        raise RuntimeError("TESSERACT_CMD is not set in .env (path to tesseract.exe).")
+
     images = convert_from_bytes(
         file_bytes,
         dpi=dpi,
